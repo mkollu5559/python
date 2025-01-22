@@ -1,0 +1,55 @@
+import pandas as pd
+import json
+import os
+
+# Function to load JSON from a file
+def load_json(file_path):
+    if not os.path.exists(file_path):
+        print(f"File not found: {file_path}")
+        return None
+    with open(file_path, 'r') as file:
+        return json.load(file)
+
+# Function to process JSON and extract service data
+def process_services(data):
+    services = []
+    for item in data.get('items', []):
+        name = item['metadata']['name']
+        ports = item['spec'].get('ports', [])
+        for port in ports:
+            services.append({
+                'Service Name': name,
+                'Port': port.get('port'),
+                'Target Port': port.get('targetPort'),
+                'Protocol': port.get('protocol'),
+            })
+    return services
+
+# Function to save data to an Excel file
+def save_to_excel(data, output_path):
+    df = pd.DataFrame(data)
+    df.to_excel(output_path, index=False)
+    print(f"Data saved to: {output_path}")
+
+# Main function
+def main():
+    # Input JSON file path (update to your local path)
+    input_file_path = "services.json"  # Replace with your file path
+
+    # Output Excel file path (update to your desired path)
+    output_file_path = "services_ports.xlsx"  # Replace with your desired path
+
+    # Load the JSON file
+    json_data = load_json(input_file_path)
+    if json_data is None:
+        return
+
+    # Process the JSON data
+    services_data = process_services(json_data)
+
+    # Save the data to an Excel file
+    save_to_excel(services_data, output_file_path)
+
+# Run the script
+if __name__ == "__main__":
+    main()
