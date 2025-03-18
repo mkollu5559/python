@@ -1,0 +1,64 @@
+import os
+import pytest
+import asyncio
+from unittest.mock import patch, AsyncMock
+from authorizer import lambda_handler, verify_token
+
+@pytest.fixture
+def mock_env():
+    with patch.dict(os.environ, {
+        "OKTA_ISSUER": "https://example.okta.com",
+        "CLIENT": "mock_client_id",
+        "env": "test"
+    }):
+        yield
+
+@pytest.fixture
+def mock_valid_token():
+    return "valid.mock.token"
+
+@pytest.fixture
+def mock_event(mock_valid_token):
+    return {
+        "methodArn": "arn:aws:execute-api:us-east-1:123456789012:api-id/dev/GET/resource",
+        "authorizationToken": f"Bearer {mock_valid_token}"
+    }
+
+@pytest.fixture
+def mock_invalid_event():
+    return {
+        "methodArn": "arn:aws:execute-api:us-east-1:123456789012:api-id/dev/GET/resource",
+        "authorizationToken": "Bearer invalid_token"
+    }
+
+@pytest.fixture
+def mock_no_auth_event():
+    return {
+        "methodArn": "arn:aws:execute-api:us-east-1:123456789012:api-id/dev/GET/resource"
+    }
+
+@pytest.mark.asyncio
+async def test_verify_token_success(mock_env, mock_valid_token):
+    with patch("authorizer.AccessTokenVerifier.verify", new=AsyncMock(return_value=True)):
+        result = await verify_token(mock_valid_token)
+        assert result is True
+
+@pytest.mark.asyncio
+async def test_verify_token_failure(mock_env):
+    with patch("authorizer.AccessTokenVerifier.verify", new=AsyncMock(side_effect=Exception("Verification failed"))):
+        result = await verify_token("invalid_token")
+        assert result is False
+
+def test_lambda_handler_valid_token(mock_env, mock_event):
+    with patch("authorizer.verify_token", new=AsyncMock(return_value=True)):
+        response = lambda_handler(mock_event, {})
+        assert response["policyDocument"]["Statement"][0]["Effect"] == "Allow"
+
+def test_lambda_handler_invalid_token(mock_env, mock_invalid_event):
+    with patch("authorizer.verify_token", new=AsyncMock(return_value=False)):
+        response = lambda_handler(mock_invalid_event, {})
+        assert response["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+
+def test_lambda_handler_no_auth_token(mock_env, mock_no_auth_event):
+    response = lambda_handler(mock_no_auth_event, {})
+    assert response["policyDocument"]["Statement"][0]["Effect"] == "Deny"
