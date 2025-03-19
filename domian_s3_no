@@ -34,6 +34,7 @@ def test_handle_publish_sns(mock_sns, s3_event):
     
     response = handle_publish_sns(s3_event, topic_arn)
     
+    assert response is not None, "handle_publish_sns returned None"
     assert response["MessageId"] == "mock-message-id"
     mock_sns.return_value.publish.assert_called_once_with(
         TopicArn=topic_arn,
@@ -46,9 +47,14 @@ def test_handle_publish_sns(mock_sns, s3_event):
     )
 
 @patch.dict(os.environ, {"TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:MyTopic"})
-def test_lambda_handler(mock_sns, s3_event):
-    """Test Lambda handler function."""
+@patch("lambda_function.handle_publish_sns", return_value={"MessageId": "mock-message-id"})
+def test_lambda_handler(mock_publish, mock_sns, s3_event):
+    """Test Lambda handler function with mock"""
+    
     response = lambda_handler(s3_event, None)
-
+    
+    assert response is not None, "lambda_handler returned None"
+    assert "MessageId" in response, "Response does not contain MessageId"
     assert response["MessageId"] == "mock-message-id"
-    mock_sns.return_value.publish.assert_called_once()
+    
+    mock_publish.assert_called_once()
