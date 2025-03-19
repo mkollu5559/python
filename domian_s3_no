@@ -3,10 +3,11 @@ import sys
 import json
 import pytest
 from unittest.mock import patch, MagicMock
-from lambda_function import handle_publish_sns, lambda_handler
+
 
 # Ensure the correct module path
 sys.path.append(os.path.abspath("module/aws/lambda/lambda_functions/maa_ma_datasync_domain_bucket_notification"))
+from lambda_function import handle_publish_sns, lambda_handler
 
 @pytest.fixture
 def s3_event():
