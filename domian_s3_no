@@ -1,0 +1,54 @@
+import json
+import os
+import pytest
+from unittest.mock import patch, MagicMock
+from lambda_function import handle_publish_sns, lambda_handler
+
+@pytest.fixture
+def s3_event():
+    """Mock S3 event structure."""
+    return {
+        "Records": [
+            {
+                "s3": {
+                    "bucket": {"name": "test-bucket"},
+                    "object": {"key": "test-file.txt", "size": 12345}
+                },
+                "eventTime": "2024-03-19T12:00:00Z"
+            }
+        ]
+    }
+
+@pytest.fixture
+def mock_sns():
+    """Mock boto3 SNS client."""
+    with patch("boto3.client") as mock:
+        sns_mock = MagicMock()
+        sns_mock.publish.return_value = {"MessageId": "mock-message-id"}
+        mock.return_value = sns_mock
+        yield mock
+
+def test_handle_publish_sns(mock_sns, s3_event):
+    """Test SNS publish function."""
+    topic_arn = "arn:aws:sns:us-east-1:123456789012:MyTopic"
+    
+    response = handle_publish_sns(s3_event, topic_arn)
+    
+    assert response["MessageId"] == "mock-message-id"
+    mock_sns.return_value.publish.assert_called_once_with(
+        TopicArn=topic_arn,
+        Message=json.dumps({
+            "bucket": "test-bucket",
+            "key": "test-file.txt",
+            "Object Time": "2024-03-19T12:00:00Z",
+            "object_Size": 12345
+        })
+    )
+
+@patch.dict(os.environ, {"TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:MyTopic"})
+def test_lambda_handler(mock_sns, s3_event):
+    """Test Lambda handler function."""
+    response = lambda_handler(s3_event, None)
+
+    assert response["MessageId"] == "mock-message-id"
+    mock_sns.return_value.publish.assert_called_once()
