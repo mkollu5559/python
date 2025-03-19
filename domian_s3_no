@@ -1,8 +1,12 @@
-import json
 import os
+import sys
+import json
 import pytest
 from unittest.mock import patch, MagicMock
 from lambda_function import handle_publish_sns, lambda_handler
+
+# Ensure the correct module path
+sys.path.append(os.path.abspath("module/aws/lambda/lambda_functions/maa_ma_datasync_domain_bucket_notification"))
 
 @pytest.fixture
 def s3_event():
@@ -35,7 +39,10 @@ def test_handle_publish_sns(mock_sns, s3_event):
     response = handle_publish_sns(s3_event, topic_arn)
     
     assert response is not None, "handle_publish_sns returned None"
+    assert "MessageId" in response, "Response does not contain MessageId"
     assert response["MessageId"] == "mock-message-id"
+
+    # Verify that SNS publish was called with expected payload
     mock_sns.return_value.publish.assert_called_once_with(
         TopicArn=topic_arn,
         Message=json.dumps({
@@ -56,5 +63,6 @@ def test_lambda_handler(mock_publish, mock_sns, s3_event):
     assert response is not None, "lambda_handler returned None"
     assert "MessageId" in response, "Response does not contain MessageId"
     assert response["MessageId"] == "mock-message-id"
-    
+
+    # Ensure handle_publish_sns was called
     mock_publish.assert_called_once()
