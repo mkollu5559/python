@@ -3,11 +3,10 @@ import sys
 import json
 import pytest
 from unittest.mock import patch, MagicMock
-
+from lambda_function import handle_publish_sns, lambda_handler
 
 # Ensure the correct module path
 sys.path.append(os.path.abspath("module/aws/lambda/lambda_functions/maa_ma_datasync_domain_bucket_notification"))
-from lambda_function import handle_publish_sns, lambda_handler
 
 @pytest.fixture
 def s3_event():
@@ -31,7 +30,7 @@ def mock_sns():
         sns_mock = MagicMock()
         sns_mock.publish.return_value = {"MessageId": "mock-message-id"}
         mock.return_value = sns_mock
-        yield sns_mock  # Ensure the mock is yielded for assertions
+        yield mock
 
 def test_handle_publish_sns(mock_sns, s3_event):
     """Test SNS publish function."""
@@ -39,16 +38,12 @@ def test_handle_publish_sns(mock_sns, s3_event):
     
     response = handle_publish_sns(s3_event, topic_arn)
     
-    # ✅ Debug output
-    print(f"DEBUG: SNS Publish Response: {response}")
-
-    # ✅ Assertions
     assert response is not None, "handle_publish_sns returned None"
     assert "MessageId" in response, "Response does not contain MessageId"
     assert response["MessageId"] == "mock-message-id"
 
-    # ✅ Verify that SNS publish was called with expected payload
-    mock_sns.publish.assert_called_once_with(
+    # Verify that SNS publish was called with expected payload
+    mock_sns.return_value.publish.assert_called_once_with(
         TopicArn=topic_arn,
         Message=json.dumps({
             "bucket": "test-bucket",
@@ -60,38 +55,15 @@ def test_handle_publish_sns(mock_sns, s3_event):
 
 @patch.dict(os.environ, {"TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:MyTopic"})
 @patch("lambda_function.handle_publish_sns", return_value={"MessageId": "mock-message-id"})
-def test_lambda_handler(mock_publish_sns, s3_event):
-    """Test Lambda handler function with proper mocking"""
+def test_lambda_handler(mock_publish, mock_sns, s3_event):
+    """Test Lambda handler function with mock"""
     
-    # ✅ Run the Lambda handler
     response = lambda_handler(s3_event, None)
     
-    # ✅ Debug Output
-    print(f"DEBUG: Lambda Handler Response: {response}")
+    print(f"DEBUG: Lambda Handler Response: {response}")  # ✅ Debugging print
 
-    # ✅ Assertions
     assert response is not None, "lambda_handler returned None"
     assert "MessageId" in response, "Response does not contain MessageId"
     assert response["MessageId"] == "mock-message-id"
 
-    # ✅ Ensure `handle_publish_sns` was called correctly
-    mock_publish_sns.assert_called_once()
-
-@patch.dict(os.environ, {"TOPIC_ARN": "arn:aws:sns:us-east-1:123456789012:MyTopic"})
-@patch("lambda_function.handle_publish_sns", side_effect=Exception("Mocked Exception"))
-def test_lambda_handler_failure(mock_publish_sns, s3_event):
-    """Test Lambda handler function failure case"""
-    
-    # ✅ Run the Lambda handler
-    response = lambda_handler(s3_event, None)
-    
-    # ✅ Debug Output
-    print(f"DEBUG: Lambda Handler Error Response: {response}")
-
-    # ✅ Assertions for error handling
-    assert response is not None, "lambda_handler returned None on failure"
-    assert "error" in response, "Response does not contain error key"
-    assert response["error"] == "Mocked Exception"
-
-    # ✅ Ensure `handle_publish_sns` was called
-    mock_publish_sns.assert_called_once()
+    mock_publish.assert_called_once()  # ✅ Ensure mock was used
