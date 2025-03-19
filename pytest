@@ -9,22 +9,27 @@ sys.path.append(os.path.abspath("module/aws/lambda/lambda_functions/maa_ma_datas
 
 # Import the Lambda handler and token verification function
 from authorizer import lambda_handler, verify_token
+from authorizer import AccessTokenVerifier  # Ensure this is the correct import path
 
 @pytest.fixture
 def mock_env():
+    """Fixture to mock environment variables"""
     with patch.dict(os.environ, {
         "OKTA_ISSUER": "https://example.okta.com",
         "CLIENT": "mock_client_id",
         "env": "test"
     }):
         yield
+    print(f"DEBUG: OKTA_ISSUER = {os.getenv('OKTA_ISSUER')}")  # Debug statement
 
 @pytest.fixture
 def mock_valid_token():
+    """Fixture to return a valid mock token"""
     return "valid.mock.token"
 
 @pytest.fixture
 def mock_event(mock_valid_token):
+    """Fixture for a valid API Gateway event"""
     return {
         "methodArn": "arn:aws:execute-api:us-east-1:123456789012:api-id/dev/GET/resource",
         "authorizationToken": f"Bearer {mock_valid_token}"
@@ -32,6 +37,7 @@ def mock_event(mock_valid_token):
 
 @pytest.fixture
 def mock_invalid_event():
+    """Fixture for an invalid API Gateway event with wrong token"""
     return {
         "methodArn": "arn:aws:execute-api:us-east-1:123456789012:api-id/dev/GET/resource",
         "authorizationToken": "Bearer invalid_token"
@@ -39,32 +45,49 @@ def mock_invalid_event():
 
 @pytest.fixture
 def mock_no_auth_event():
+    """Fixture for an API Gateway event with no authorization token"""
     return {
         "methodArn": "arn:aws:execute-api:us-east-1:123456789012:api-id/dev/GET/resource"
     }
 
 @pytest.mark.asyncio
 async def test_verify_token_success(mock_env, mock_valid_token):
-    with patch("authorizer.AccessTokenVerifier.verify", new=AsyncMock(return_value=True)):
+    """Test case for a successful token verification"""
+    print(f"DEBUG: Running test_verify_token_success with token: {mock_valid_token}")
+    
+    with patch("module.aws.lambda.lambda_functions.maa_ma_datasync_okta_authorizer.authorizer.AccessTokenVerifier.verify",
+               new=AsyncMock(return_value=True)):
         result = await verify_token(mock_valid_token)
+        print(f"DEBUG: Token verification result: {result}")  # Debug output
         assert result is True
 
 @pytest.mark.asyncio
 async def test_verify_token_failure(mock_env):
-    with patch("authorizer.AccessTokenVerifier.verify", new=AsyncMock(side_effect=Exception("Verification failed"))):
+    """Test case for a failed token verification"""
+    print("DEBUG: Running test_verify_token_failure")
+    
+    with patch("module.aws.lambda.lambda_functions.maa_ma_datasync_okta_authorizer.authorizer.AccessTokenVerifier.verify",
+               new=AsyncMock(side_effect=Exception("Verification failed"))):
         result = await verify_token("invalid_token")
+        print(f"DEBUG: Token verification result: {result}")
         assert result is False
 
 def test_lambda_handler_valid_token(mock_env, mock_event):
+    """Test case for Lambda handler with a valid token"""
     with patch("authorizer.verify_token", new=AsyncMock(return_value=True)):
         response = lambda_handler(mock_event, {})
+        print(f"DEBUG: Lambda response: {response}")
         assert response["policyDocument"]["Statement"][0]["Effect"] == "Allow"
 
 def test_lambda_handler_invalid_token(mock_env, mock_invalid_event):
+    """Test case for Lambda handler with an invalid token"""
     with patch("authorizer.verify_token", new=AsyncMock(return_value=False)):
         response = lambda_handler(mock_invalid_event, {})
+        print(f"DEBUG: Lambda response: {response}")
         assert response["policyDocument"]["Statement"][0]["Effect"] == "Deny"
 
 def test_lambda_handler_no_auth_token(mock_env, mock_no_auth_event):
+    """Test case for Lambda handler with no authorization token"""
     response = lambda_handler(mock_no_auth_event, {})
+    print(f"DEBUG: Lambda response: {response}")
     assert response["policyDocument"]["Statement"][0]["Effect"] == "Deny"
