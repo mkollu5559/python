@@ -11,6 +11,12 @@ from lambda_function import (
     lambda_handler
 )
 
+# Ensure AWS region is set to prevent NoRegionError
+@pytest.fixture(autouse=True)
+def set_aws_region():
+    """Set the AWS region for boto3 clients."""
+    os.environ["AWS_REGION"] = "us-east-1"
+
 @pytest.fixture
 def mock_env_vars():
     """Mock environment variables required for the function."""
@@ -18,7 +24,7 @@ def mock_env_vars():
         "env": "test",
         "param_name": "test_param",
         "dbx_job_name": "test_job",
-        "AWS_REGION": "us-east-1"  # Ensure region is set
+        "AWS_REGION": "us-east-1"  # Ensuring region is set
     }):
         yield
 
