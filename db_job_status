@@ -1,4 +1,5 @@
 import pytest
+import os
 import json
 import boto3
 from unittest.mock import patch, MagicMock
@@ -12,15 +13,18 @@ from lambda_function import (
 
 @pytest.fixture
 def mock_env_vars():
+    """Mock environment variables required for the function."""
     with patch.dict('os.environ', {
         "env": "test",
         "param_name": "test_param",
         "dbx_job_name": "test_job",
+        "AWS_REGION": "us-east-1"  # Ensure region is set
     }):
         yield
 
 @pytest.fixture
 def mock_boto3():
+    """Mock boto3 client and resource for AWS services."""
     with patch("boto3.client") as mock_client, patch("boto3.resource") as mock_resource:
         mock_ssm = MagicMock()
         mock_client.return_value = mock_ssm
@@ -37,6 +41,11 @@ def mock_boto3():
         mock_table.update_item.return_value = {"ResponseMetadata": {"HTTPStatusCode": 200}}
 
         mock_resource.return_value = mock_dynamodb
+
+        # Explicitly set the region in the mock clients
+        mock_client.return_value.meta.region_name = "us-east-1"
+        mock_resource.return_value.meta.region_name = "us-east-1"
+
         yield mock_client, mock_resource
 
 @patch("lambda_function.boto3.resource")
