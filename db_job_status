@@ -1,0 +1,113 @@
+import pytest
+import json
+import boto3
+from unittest.mock import patch, MagicMock
+from lambda_function import (
+    scan_dbrx_audit_data,
+    get_access_token,
+    get_databricks_job_status,
+    update_dbrx_audit_data,
+    lambda_handler
+)
+
+@pytest.fixture
+def mock_env_vars():
+    with patch.dict('os.environ', {
+        "env": "test",
+        "param_name": "test_param",
+        "dbx_job_name": "test_job",
+    }):
+        yield
+
+@pytest.fixture
+def mock_boto3():
+    with patch("boto3.client") as mock_client, patch("boto3.resource") as mock_resource:
+        mock_ssm = MagicMock()
+        mock_client.return_value = mock_ssm
+        mock_ssm.get_parameter.return_value = {
+            "Parameter": {"Value": "SpId:{123}|SpAppId:{abc}"}
+        }
+
+        mock_dynamodb = MagicMock()
+        mock_table = mock_dynamodb.Table.return_value
+        mock_table.scan.return_value = {
+            "Items": [{"Run_ID": "123", "Run_Status": "Running"}],
+            "LastEvaluatedKey": None
+        }
+        mock_table.update_item.return_value = {"ResponseMetadata": {"HTTPStatusCode": 200}}
+
+        mock_resource.return_value = mock_dynamodb
+        yield mock_client, mock_resource
+
+@patch("lambda_function.boto3.resource")
+def test_scan_dbrx_audit_data(mock_dynamodb):
+    """Test scanning DynamoDB for Databricks audit data."""
+    mock_table = mock_dynamodb.return_value.Table.return_value
+    mock_table.scan.return_value = {
+        "Items": [{"Run_ID": "123", "Run_Status": "Running"}],
+        "LastEvaluatedKey": None
+    }
+
+    result = scan_dbrx_audit_data()
+    assert len(result) == 1
+    assert result[0]["Run_ID"] == "123"
+
+@patch("lambda_function.boto3.client")
+def test_get_access_token(mock_ssm):
+    """Test fetching access token from AWS SSM."""
+    mock_ssm.return_value.get_parameter.return_value = {
+        "Parameter": {"Value": "SpId:{123}|SpAppId:{abc}"}
+    }
+
+    sp_app_id, sp_token = get_access_token()
+    assert sp_app_id == "abc"
+    assert sp_token is not None
+
+@patch("lambda_function.WorkspaceClient")
+def test_get_databricks_job_status(mock_workspace):
+    """Test retrieving job status from Databricks."""
+    mock_client = mock_workspace.return_value
+    mock_client.jobs.get_run.return_value = MagicMock(
+        status="TERMINATED",
+        result_state="SUCCESS",
+        start_time="1700000000",
+        end_time="1700000300"
+    )
+
+    response = get_databricks_job_status("123")
+    assert response.status == "TERMINATED"
+    assert response.result_state == "SUCCESS"
+
+@patch("lambda_function.boto3.resource")
+def test_update_dbrx_audit_data(mock_dynamodb):
+    """Test updating Databricks job status in DynamoDB."""
+    mock_table = mock_dynamodb.return_value.Table.return_value
+    mock_table.update_item.return_value = {"ResponseMetadata": {"HTTPStatusCode": 200}}
+
+    response = update_dbrx_audit_data(
+        job_run_id="123",
+        start_date="2024-03-20 12:00:00",
+        end_date="2024-03-20 12:05:00",
+        Run_Status="Succeeded",
+        err_msg="",
+        dbrx_Run_Status="TERMINATED|SUCCESS"
+    )
+    assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
+
+@patch("lambda_function.get_databricks_job_status")
+@patch("lambda_function.update_dbrx_audit_data")
+@patch("lambda_function.scan_dbrx_audit_data")
+def test_lambda_handler(mock_scan, mock_update, mock_get_status, mock_env_vars):
+    """Test Lambda handler function."""
+    mock_scan.return_value = [{"Run_ID": "123", "Run_Status": "Running"}]
+    mock_get_status.return_value = MagicMock(
+        status="TERMINATED",
+        result_state="SUCCESS",
+        start_time="1700000000",
+        end_time="1700000300"
+    )
+    mock_update.return_value = {"ResponseMetadata": {"HTTPStatusCode": 200}}
+
+    event = {}
+    response = lambda_handler(event, None)
+    assert response["statusCode"] == 200
