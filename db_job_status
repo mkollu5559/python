@@ -1,7 +1,4 @@
-# Ensure AWS Region is set BEFORE importing boto3
 import os
-os.environ["AWS_REGION"] = "us-east-1"  # <-- Set region globally
-
 import pytest
 import boto3
 from unittest.mock import patch, MagicMock
@@ -13,13 +10,6 @@ from lambda_function import (
     lambda_handler
 )
 
-# Custom class for mocking AWS Lambda Context
-class LambdaContext:
-    function_name = "test"
-    memory_limit_in_mb = 128
-    invoked_function_arn = "arn:aws:lambda:eu-west-1:809313241:function:test"
-    aws_request_id = "52fd7c07-2182-154f-163f-5f0f9a621d72"
-
 # Ensure AWS region is set inside Pytest fixtures
 @pytest.fixture(autouse=True)
 def set_aws_region():
@@ -29,16 +19,12 @@ def set_aws_region():
 @pytest.fixture
 def mock_env_vars():
     """Mock environment variables required for the function."""
-    with patch.dict(os.environ, {
-        "AWS_ACCESS_KEY_ID": "test",
-        "AWS_SECRET_ACCESS_KEY": "test",
-        "AWS_SECURITY_TOKEN": "test",
-        "AWS_SESSION_TOKEN": "test",
-        "AWS_DEFAULT_REGION": "us-east-1",  # Fixes NoRegionError
+    with patch.dict('os.environ', {
+        "env": "test",
         "param_name": "test_param",
         "dbx_job_name": "test_job",
-        "BEARER_TOKEN_SSM_PARAMETER": "test-parameter"
-    }, clear=True):
+        "AWS_REGION": "us-east-1"
+    }):
         yield
 
 @pytest.fixture
@@ -96,15 +82,14 @@ def test_get_databricks_job_status(mock_workspace):
     """Test retrieving job status from Databricks."""
     mock_client = mock_workspace.return_value
     mock_client.jobs.get_run.return_value = MagicMock(
-        status="TERMINATED",
-        result_state="SUCCESS",
+        state=MagicMock(result_state="SUCCESS", life_cycle_state="TERMINATED"),
         start_time="1700000000",
         end_time="1700000300"
     )
 
     response = get_databricks_job_status("123")
-    assert response.status == "TERMINATED"
-    assert response.result_state == "SUCCESS"
+    assert response.state.result_state == "SUCCESS"
+    assert response.state.life_cycle_state == "TERMINATED"
 
 @patch("lambda_function.boto3.resource")
 def test_update_dbrx_audit_data(mock_dynamodb):
@@ -129,13 +114,12 @@ def test_lambda_handler(mock_scan, mock_update, mock_get_status, mock_env_vars):
     """Test Lambda handler function."""
     mock_scan.return_value = [{"Run_ID": "123", "Run_Status": "Running"}]
     mock_get_status.return_value = MagicMock(
-        status="TERMINATED",
-        result_state="SUCCESS",
+        state=MagicMock(result_state="SUCCESS", life_cycle_state="TERMINATED"),
         start_time="1700000000",
         end_time="1700000300"
     )
     mock_update.return_value = {"ResponseMetadata": {"HTTPStatusCode": 200}}
 
     event = {}
-    response = lambda_handler(event, LambdaContext())  # Pass mock LambdaContext
+    response = lambda_handler(event, None)
     assert response["statusCode"] == 200
