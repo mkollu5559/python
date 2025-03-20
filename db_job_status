@@ -1,6 +1,8 @@
-import pytest
+# Ensure AWS Region is set BEFORE importing boto3
 import os
-import json
+os.environ["AWS_REGION"] = "us-east-1"  # <-- Set region globally
+
+import pytest
 import boto3
 from unittest.mock import patch, MagicMock
 from lambda_function import (
@@ -11,21 +13,32 @@ from lambda_function import (
     lambda_handler
 )
 
-# Ensure AWS region is set to prevent NoRegionError
+# Custom class for mocking AWS Lambda Context
+class LambdaContext:
+    function_name = "test"
+    memory_limit_in_mb = 128
+    invoked_function_arn = "arn:aws:lambda:eu-west-1:809313241:function:test"
+    aws_request_id = "52fd7c07-2182-154f-163f-5f0f9a621d72"
+
+# Ensure AWS region is set inside Pytest fixtures
 @pytest.fixture(autouse=True)
 def set_aws_region():
-    """Set the AWS region for boto3 clients."""
+    """Ensure AWS region is set for boto3 clients."""
     os.environ["AWS_REGION"] = "us-east-1"
 
 @pytest.fixture
 def mock_env_vars():
     """Mock environment variables required for the function."""
-    with patch.dict('os.environ', {
-        "env": "test",
+    with patch.dict(os.environ, {
+        "AWS_ACCESS_KEY_ID": "test",
+        "AWS_SECRET_ACCESS_KEY": "test",
+        "AWS_SECURITY_TOKEN": "test",
+        "AWS_SESSION_TOKEN": "test",
+        "AWS_DEFAULT_REGION": "us-east-1",  # Fixes NoRegionError
         "param_name": "test_param",
         "dbx_job_name": "test_job",
-        "AWS_REGION": "us-east-1"  # Ensuring region is set
-    }):
+        "BEARER_TOKEN_SSM_PARAMETER": "test-parameter"
+    }, clear=True):
         yield
 
 @pytest.fixture
@@ -124,5 +137,5 @@ def test_lambda_handler(mock_scan, mock_update, mock_get_status, mock_env_vars):
     mock_update.return_value = {"ResponseMetadata": {"HTTPStatusCode": 200}}
 
     event = {}
-    response = lambda_handler(event, None)
+    response = lambda_handler(event, LambdaContext())  # Pass mock LambdaContext
     assert response["statusCode"] == 200
